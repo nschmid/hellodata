@@ -1,0 +1,58 @@
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'jacoco'
+
+    repositories { mavenCentral() }
+
+    java {
+        toolchain { languageVersion = JavaLanguageVersion.of(25) }
+    }
+
+    // Parameter-Namen ins Bytecode (Live-Befund RLY-1, 2026-08-12, s. docs/OPEN-ISSUES.md):
+    // ohne diesen Schalter loest Spring `@PathVariable UUID id` zur Laufzeit NICHT auf — der
+    // Name steht dann nicht im Class-File, und der Aufruf endet als HTTP 400. Es ist KEIN
+    // Compile-Fehler: der Code uebersetzt sauber, faellt erst im Test um, und die Meldung
+    // zeigt auf die Pfadvariable statt auf die Build-Datei. Ein Modell repariert dann
+    // Controller-Code, an dem nichts falsch ist — bei RLY-1 sechs Reparatur-Runden lang.
+    // dark-factory selbst setzt den Schalter seit jeher (build.gradle.kts) und haelt ihn mit
+    // einem Regressionstest fest (RunControllerTest); das erzeugte Projekt erbte ihn nur nie.
+    // configureEach statt der eager-Form: Gradle 9 raet zur Konfigurations-Vermeidung,
+    // und diese Variante ist in 8 wie 9 gueltig.
+    tasks.withType(JavaCompile).configureEach {
+        options.compilerArgs << '-parameters'
+    }
+
+    dependencies {
+        implementation platform('org.springframework.boot:spring-boot-dependencies:3.5.6')
+        testImplementation platform('org.springframework.boot:spring-boot-dependencies:3.5.6')
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        // Gradle 9: der JUnit-Platform-LAUNCHER muss explizit auf den Test-Runtime-Classpath
+        // (sonst „Failed to load JUnit Platform" — live 2026-07-27, Stufe TEST). Version via BOM.
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    test {
+        useJUnitPlatform()
+        // Volle Fehlermeldung im Build-Log (Live-Befund 2026-08-02): Gradle zeigt per Default
+        // nur Exception-KLASSE und Zeile — der VERIFY-Fehler kam als
+        // "NoSuchBeanDefinitionException at DefaultListableBeanFactory.java:2303" in den
+        // Reparatur-Prompt, OHNE zu sagen, WELCHE Bean fehlt. Damit kann kein Modell reparieren;
+        // es raet. Mit exceptionFormat 'full' steht die Ursache im Klartext dort
+        // ("No qualifying bean of type '...PollServiceCreatePollMethod' available").
+        // Zuweisungs-Syntax (=) statt der Leerzeichen-Form: letztere ist seit Gradle 9
+        // deprecated und in Gradle 10 ENTFERNT — gemessen am erzeugten Projekt, sie war die
+        // einzige Deprecation darin. Ein Scaffold, das kuenftige Gradle-Versionen nicht mehr
+        // konfiguriert, macht jedes generierte Projekt unbaubar; `events` bleibt ein
+        // Methodenaufruf und damit unveraendert.
+        testLogging {
+            events 'failed'
+            exceptionFormat = 'full'
+            showCauses = true
+            showStackTraces = true
+        }
+    }
+    jacocoTestReport {
+        dependsOn test
+        reports { xml.required = true }
+    }
+}
