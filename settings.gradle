@@ -1,0 +1,4 @@
+rootProject.name = 'integrationtests'
+include 'domain'
+include 'application'
+include 'adapter'
